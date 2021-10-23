@@ -70,10 +70,11 @@ REFLECT_NODE_BEGIN( ObjectNode, Node, MetaNone() )
     REFLECT( m_DeoptimizeWritableFilesWithToken,    "DeoptimizeWritableFilesWithToken", MetaOptional() )
     REFLECT( m_AllowDistribution,                   "AllowDistribution",                MetaOptional() )
     REFLECT( m_AllowCaching,                        "AllowCaching",                     MetaOptional() )
+    REFLECT( m_WorkingDir,                          "WorkingDir",                       MetaOptional() + MetaPath() )
     REFLECT_ARRAY( m_CompilerForceUsing,            "CompilerForceUsing",               MetaOptional() + MetaFile() )
 
     // Preprocessor
-    REFLECT( m_Preprocessor,                        "Preprocessor",                     MetaOptional() + MetaFile() + MetaAllowNonFile())
+    REFLECT( m_Preprocessor,                        "Preprocessor",                     MetaOptional() + MetaFile() + MetaAllowNonFile() )
     REFLECT( m_PreprocessorOptions,                 "PreprocessorOptions",              MetaOptional() )
 
     REFLECT_ARRAY( m_PreBuildDependencyNames,       "PreBuildDependencies",             MetaOptional() + MetaFile() + MetaAllowNonFile() )
@@ -345,7 +346,7 @@ ObjectNode::~ObjectNode()
 
     // spawn the process
     CompileHelper ch;
-    if ( !ch.SpawnCompiler( job, GetName(), GetCompiler(), GetCompiler()->GetExecutable(), fullArgs ) ) // use response file for MSVC
+    if ( !ch.SpawnCompiler( job, GetName(), GetCompiler(), GetCompiler()->GetExecutable(), fullArgs, m_WorkingDir.IsEmpty() ? nullptr : m_WorkingDir.Get() ) ) // use response file for MSVC
     {
         return NODE_RESULT_FAILED; // SpawnCompiler has logged error
     }
@@ -387,6 +388,8 @@ ObjectNode::~ObjectNode()
     {
         return NODE_RESULT_FAILED; // ProcessIncludesMSCL will have emitted an error
     }
+
+    GenerateDependenciesListFile();
 
     // record new file time
     RecordStampFromBuiltFile();
@@ -468,6 +471,8 @@ Node::BuildResult ObjectNode::DoBuildWithPreProcessor( Job * job, bool useDeopti
         {
             return NODE_RESULT_FAILED; // ProcessIncludesWithPreProcessor will have emitted an error
         }
+
+        GenerateDependenciesListFile();
     }
 
     if ( pass == PASS_PREP_FOR_SIMPLE_DISTRIBUTION )
@@ -866,6 +871,40 @@ bool ObjectNode::ProcessIncludesWithPreProcessor( Job * job )
     FLOG_VERBOSE( "Process Includes:\n - File: %s\n - Time: %u ms\n - Num : %u", m_Name.Get(), uint32_t( t.GetElapsedMS() ), uint32_t( m_Includes.GetSize() ) );
 
     return true;
+}
+
+void ObjectNode::GenerateDependenciesListFile()
+{
+    if (m_DependenciesListOutFile.IsEmpty())
+        return;
+
+    if (FileIO::FileExists(m_DependenciesListOutFile.Get()))
+    {
+        if (!FileIO::FileDelete(m_DependenciesListOutFile.Get()))
+        {
+            FLOG_ERROR("Failed to delete dependencies list file  '%s'", m_DependenciesListOutFile.Get());
+            return;
+        }
+    }
+
+    FileStream fs;
+    if (!fs.Open(m_DependenciesListOutFile.Get(), FileStream::WRITE_ONLY))
+    {
+        FLOG_ERROR("Failed to create dependencies list file  '%s'", m_DependenciesListOutFile.Get());
+        return;
+    }
+
+    AStackString<> temp;
+    for (size_t i = 0; i < m_Includes.GetSize(); i++)
+    {
+        temp.Append(m_Includes[i]);
+        temp.Append(AString("\n"));
+    }
+
+    fs.Write(temp.Get(), temp.GetLength());
+
+    fs.Flush();
+    fs.Close();
 }
 
 // LoadRemote
@@ -1771,7 +1810,7 @@ bool ObjectNode::BuildPreprocessedOutput( const Args & fullArgs, Job * job, bool
     if ( !ch.SpawnCompiler( job, GetName(),
          useDedicatedPreprocessor ? GetDedicatedPreprocessor() : GetCompiler(),
          useDedicatedPreprocessor ? GetDedicatedPreprocessor()->GetExecutable() : GetCompiler()->GetExecutable(),
-         fullArgs ) )
+         fullArgs, m_WorkingDir.Get()) )
     {
         // only output errors in failure case
         // (as preprocessed output goes to stdout, normal logging is pushed to

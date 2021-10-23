@@ -100,7 +100,9 @@ protected:
     AString             m_PCHOptions;
     AString             m_Preprocessor;
     AString             m_PreprocessorOptions;
+    AString             m_DependenciesListOutFile;
     Array< AString >    m_PreBuildDependencyNames;
+    AString             m_WorkingDir;
 
     // Internal State
     AString             m_PrecompiledHeaderName;

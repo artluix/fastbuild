@@ -174,6 +174,7 @@ private:
 
     bool ProcessIncludesMSCL( const char * output, uint32_t outputSize );
     bool ProcessIncludesWithPreProcessor( Job * job );
+    void GenerateDependenciesListFile();
 
     const AString & GetCacheName( Job * job ) const;
     bool RetrieveFromCache( Job * job );
@@ -258,6 +259,8 @@ private:
     AString             m_Preprocessor;
     AString             m_PreprocessorOptions;
     Array< AString >    m_PreBuildDependencyNames;
+    AString             m_WorkingDir;
+    AString             m_DependenciesListOutFile;
 
     // Internal State
     AString             m_PrecompiledHeader;

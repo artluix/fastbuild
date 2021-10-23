@@ -50,6 +50,7 @@ REFLECT_NODE_BEGIN( ObjectListNode, Node, MetaNone() )
     REFLECT( m_DeoptimizeWritableFilesWithToken,    "DeoptimizeWritableFilesWithToken", MetaOptional() )
     REFLECT( m_AllowDistribution,                   "AllowDistribution",                MetaOptional() )
     REFLECT( m_AllowCaching,                        "AllowCaching",                     MetaOptional() )
+    REFLECT( m_WorkingDir,                          "WorkingDir",                       MetaOptional() + MetaPath() )
     REFLECT( m_Hidden,                              "Hidden",                           MetaOptional() )
     // Precompiled Headers
     REFLECT( m_PCHInputFile,                        "PCHInputFile",                     MetaOptional() + MetaFile() )
@@ -58,6 +59,7 @@ REFLECT_NODE_BEGIN( ObjectListNode, Node, MetaNone() )
     // Preprocessor
     REFLECT( m_Preprocessor,                        "Preprocessor",                     MetaOptional() + MetaFile() + MetaAllowNonFile() )
     REFLECT( m_PreprocessorOptions,                 "PreprocessorOptions",              MetaOptional() )
+    REFLECT( m_DependenciesListOutFile,             "DependenciesListOutFile",          MetaOptional() )
     REFLECT_ARRAY( m_PreBuildDependencyNames,       "PreBuildDependencies",             MetaOptional() + MetaFile() + MetaAllowNonFile() )
 
     // Internal State
@@ -775,6 +777,7 @@ ObjectNode * ObjectListNode::CreateObjectNode( NodeGraph & nodeGraph,
     node->m_CompilerInputFile = objectInput;
     node->m_CompilerOutputExtension = m_CompilerOutputExtension;
     node->m_PCHObjectFileName = pchObjectName;
+    node->m_WorkingDir = m_WorkingDir;
     if ( flags.IsCreatingPCH() )
     {
         // Precompiled headers are never de-optimized
@@ -793,6 +796,7 @@ ObjectNode * ObjectListNode::CreateObjectNode( NodeGraph & nodeGraph,
     node->m_PrecompiledHeader = m_PrecompiledHeaderName;
     node->m_Preprocessor = preprocessor;
     node->m_PreprocessorOptions = preprocessorOptions;
+    node->m_DependenciesListOutFile = m_DependenciesListOutFile;
     node->m_CompilerFlags = flags;
     node->m_PreprocessorFlags = preprocessorFlags;
     node->m_OwnerObjectList = m_Name;
