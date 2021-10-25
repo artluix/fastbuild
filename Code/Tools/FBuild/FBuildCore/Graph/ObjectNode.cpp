@@ -878,6 +878,9 @@ void ObjectNode::GenerateDependenciesListFile()
     if (m_DependenciesListOutFile.IsEmpty())
         return;
 
+    if (!m_DependenciesListOutFile.EndsWith(".txt") && !m_DependenciesListOutFile.EndsWith(".d"))
+        return;
+
     if (FileIO::FileExists(m_DependenciesListOutFile.Get()))
     {
         if (!FileIO::FileDelete(m_DependenciesListOutFile.Get()))
@@ -895,10 +898,25 @@ void ObjectNode::GenerateDependenciesListFile()
     }
 
     AStackString<> temp;
-    for (size_t i = 0; i < m_Includes.GetSize(); i++)
+
+    if (m_DependenciesListOutFile.EndsWith(".txt")) // MSVC
     {
-        temp.Append(m_Includes[i]);
-        temp.Append(AString("\n"));
+        for (size_t i = 0; i < m_Includes.GetSize(); i++)
+        {
+            temp.Append(m_Includes[i]);
+            temp.Append(AString("\n"));
+        }
+    }
+    else // .d - Simulate -MD -MF of gcc and clang
+    {
+        temp.Append(m_Name);
+        temp.Append(AString(":"));
+
+        for (size_t i = 0; i < m_Includes.GetSize(); i++)
+        {
+            temp.Append(AString(" \\\n  "));
+            temp.Append(m_Includes[i]);
+        }
     }
 
     fs.Write(temp.Get(), temp.GetLength());
