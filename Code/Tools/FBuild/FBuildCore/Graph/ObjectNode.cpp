@@ -879,7 +879,10 @@ void ObjectNode::GenerateDependenciesListFile()
         return;
 
     if (!m_DependenciesListOutFile.EndsWith(".txt") && !m_DependenciesListOutFile.EndsWith(".d"))
+    {
+        FLOG_WARN("Unsupported dependencies list file extension '%s'", m_DependenciesListOutFile.Get());
         return;
+    }
 
     if (FileIO::FileExists(m_DependenciesListOutFile.Get()))
     {

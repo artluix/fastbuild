@@ -22,10 +22,15 @@ namespace UnrealBuildTool
 		public static string FBuildExePathOverride = "";
 
 		// Controls network build distribution
-		private bool bEnableDistribution = false;
+		private bool bEnableDistribution = true;
 
 		// Controls whether to use caching at all. CachePath and CacheMode are only relevant if this is enabled.
 		private bool bEnableCaching = true;
+
+		// Whether you want to see additional caching info like misses, hits and stores
+		private bool bEnableCacheVerbosity = false;
+
+		private bool bUseExperimentalLightCache = true; // MSVC only
 
 		// Location of the shared cache, it could be a local or network path (i.e: @"\\DESKTOP-BEAST\FASTBuildCache").
 		// Only relevant if bEnableCaching is true;
@@ -156,13 +161,24 @@ namespace UnrealBuildTool
 			
 			DetectBuildType(Actions);
 
-			string FASTBuildFilePath = Path.Combine(UnrealBuildTool.EngineDirectory.FullName, "Intermediate", "Build", "fbuild.bff");
+			string tmpFileName = Path.GetRandomFileName();
+			string FASTBuildFilePath = Path.Combine(UnrealBuildTool.EngineDirectory.FullName, "Intermediate", "Build", $"{tmpFileName}.bff");
+			string fdbPath = Path.Combine(UnrealBuildTool.EngineDirectory.FullName, "Intermediate", "Build", $"{tmpFileName}.windows.fdb");
+
+			Console.WriteLine("bff file:" + FASTBuildFilePath);
 
 			if (!CreateBffFile(Actions, FASTBuildFilePath))
 				return false;
 
-			return ExecuteBffFile(FASTBuildFilePath);
+			if (!ExecuteBffFile(FASTBuildFilePath))
+				return false;
+
+			File.Delete(FASTBuildFilePath);
+			File.Delete(fdbPath);
+
+			return true;
 		}
+
 
 		FileStream bffOutputFileStream;
 		private void AddText(string StringToWrite)
@@ -441,6 +457,7 @@ namespace UnrealBuildTool
 
 				AddText($"\t.Root = '{VCEnv.CompilerPath.Directory}'\n");
 				AddText("\t.Executable = '$Root$/cl.exe'\n");
+
 				AddText("\t.ExtraFiles =\n\t{\n");
 				AddText("\t\t'$Root$/c1.dll'\n");
 				AddText("\t\t'$Root$/c1xx.dll'\n");
@@ -492,6 +509,11 @@ namespace UnrealBuildTool
 				}
 
 				AddText("\t}\n"); // End extra files
+
+				if (bEnableCaching && bUseExperimentalLightCache)
+				{
+					AddText($"\t.UseLightCache_Experimental = true\n");
+				}
 
 				AddText("}\n\n"); // End compiler
 			}
@@ -618,7 +640,8 @@ namespace UnrealBuildTool
 			AddText($"\t.CompilerInputFiles = \"{InputFile}\"\n");
 			AddText($"\t.CompilerOutputPath = \"{IntermediatePath}\"\n");
 			AddText($"\t.WorkingDir = \"{Action.WorkingDirectory}\"\n");
-			if(Action.DependencyListFile != null)
+
+			if (Action.DependencyListFile != null)
 			{
 				AddText($"\t.DependenciesListOutFile = \"{Action.DependencyListFile.FullName}\"\n");
 			}
@@ -643,6 +666,7 @@ namespace UnrealBuildTool
 			if (IsMSVC())
 			{
 				OtherCompilerOptions = OtherCompilerOptions.Replace("we4668", "wd4668");
+				OtherCompilerOptions += " /wd4005";
 			}
 			else
 			{
@@ -708,6 +732,11 @@ namespace UnrealBuildTool
 
 		private void AddExecNode(Action Action,int ActionIndex,List<int> DependencyIndices)
 		{
+			if (Action.CommandPath.FullName.EndsWith("cl-filter.exe"))
+			{
+				//Action.CommandArguments += " /wd4005";
+			}
+
 			AddText($"; \"{Action.CommandPath}\" {Action.CommandArguments}\n");
 			AddText($"Exec('Action_{ActionIndex}')\n");
 			AddText("{\n");
@@ -791,16 +820,21 @@ namespace UnrealBuildTool
 
 			if (bEnableCaching)
 			{
+				if (bEnableCacheVerbosity)
+				{
+					cacheArgument += "-cacheverbose ";
+				}
+
 				switch (CacheMode)
 				{
 					case eCacheMode.ReadOnly:
-						cacheArgument = "-cacheread -cacheverbose";
+						cacheArgument += "-cacheread";
 						break;
 					case eCacheMode.WriteOnly:
-						cacheArgument = "-cachewrite -cacheverbose";
+						cacheArgument += "-cachewrite";
 						break;
 					case eCacheMode.ReadWrite:
-						cacheArgument = "-cache -cacheverbose";
+						cacheArgument += "-cache";
 						break;
 				}
 			}
