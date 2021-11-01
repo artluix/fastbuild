@@ -30,8 +30,6 @@ namespace UnrealBuildTool
 		// Whether you want to see additional caching info like misses, hits and stores
 		private bool bEnableCacheVerbosity = false;
 
-		private bool bUseExperimentalLightCache = true; // MSVC only
-
 		// Location of the shared cache, it could be a local or network path (i.e: @"\\DESKTOP-BEAST\FASTBuildCache").
 		// Only relevant if bEnableCaching is true;
 		private string CachePath = "D:\\Fastbuild\\Cache";
@@ -104,7 +102,8 @@ namespace UnrealBuildTool
 			Windows,
 			XBOne,
 			PS4,
-			PS5
+			PS5,
+			Linux
 		}
 
 		private FBBuildType BuildType = FBBuildType.Windows;
@@ -131,6 +130,11 @@ namespace UnrealBuildTool
 					BuildType = FBBuildType.XBOne;
 					return;
 				}
+				else if (action.CommandPath.FullName.Contains("linux"))
+				{
+					BuildType = FBBuildType.Linux;
+					return;
+				}
 				else if (action.CommandPath.FullName.Contains("Microsoft")) //Not a great test.
 				{
 					BuildType = FBBuildType.Windows;
@@ -150,6 +154,7 @@ namespace UnrealBuildTool
 				case FBBuildType.Windows: return "UE4Compiler";
 				case FBBuildType.PS4: return "UE4PS4Compiler";
 				case FBBuildType.PS5: return "UE4PS5Compiler";
+				case FBBuildType.Linux: return "UE4LinuxCompiler";
 			}
 		}
 
@@ -166,19 +171,21 @@ namespace UnrealBuildTool
 			string fdbPath = Path.Combine(UnrealBuildTool.EngineDirectory.FullName, "Intermediate", "Build", $"{tmpFileName}.windows.fdb");
 
 			Console.WriteLine("bff file:" + FASTBuildFilePath);
+			bool FASTBuildResult = CreateBffFile(Actions, FASTBuildFilePath);
 
-			if (!CreateBffFile(Actions, FASTBuildFilePath))
-				return false;
+			if (FASTBuildResult)
+			{
+				FASTBuildResult = ExecuteBffFile(FASTBuildFilePath);
+			}
 
-			if (!ExecuteBffFile(FASTBuildFilePath))
-				return false;
+			if (FASTBuildResult)
+			{
+				File.Delete(FASTBuildFilePath);
+				File.Delete(fdbPath);
+			}
 
-			File.Delete(FASTBuildFilePath);
-			File.Delete(fdbPath);
-
-			return true;
+			return FASTBuildResult;
 		}
-
 
 		FileStream bffOutputFileStream;
 		private void AddText(string StringToWrite)
@@ -194,6 +201,7 @@ namespace UnrealBuildTool
 				.Replace("$(DurangoXDK)", "$DurangoXDK$") // Xbox ? SDK
 				.Replace("$(SCE_ORBIS_SDK_DIR)", "$SCE_ORBIS_SDK_DIR$") // PS4 SDK
 				.Replace("$(SCE_PROSPERO_SDK_DIR)", "SCE_PROSPERO_SDK_DIR") // PS5 SDK
+				.Replace("$(LINUX_MULTIARCH_ROOT)", "LINUX_MULTIARCH_ROOT") // Linux UE4 Toolchain
 				.Replace("$(DXSDK_DIR)", "$DXSDK_DIR$")
 				.Replace("$(CommonProgramFiles)", "$CommonProgramFiles$");
 			return outputString;
@@ -273,7 +281,7 @@ namespace UnrealBuildTool
 				{
 					string Token = Tokens[i];
 					// Skip tokens with values, I for cpp includes, l for resource compiler includes
-					if (new[] { "/I", "/l", "/D", "-D", "-x", "-include" }.Contains(Token))
+					if (new[] { "/I", "/l", "/D", "-D", "-x", "-include", "-target" }.Contains(Token))
 					{
 						++i;
 					}
@@ -384,7 +392,7 @@ namespace UnrealBuildTool
 
 			try
 			{
-				 VCEnv = VCEnvironment.Create(WindowsPlatform.GetDefaultCompiler(null),UnrealTargetPlatform.Win64, WindowsArchitecture.x64, null, null,null);
+				VCEnv = VCEnvironment.Create(WindowsPlatform.GetDefaultCompiler(null),UnrealTargetPlatform.Win64, WindowsArchitecture.x64, null, null,null);
 			}
 			catch (Exception)
 			{
@@ -457,7 +465,6 @@ namespace UnrealBuildTool
 
 				AddText($"\t.Root = '{VCEnv.CompilerPath.Directory}'\n");
 				AddText("\t.Executable = '$Root$/cl.exe'\n");
-
 				AddText("\t.ExtraFiles =\n\t{\n");
 				AddText("\t\t'$Root$/c1.dll'\n");
 				AddText("\t\t'$Root$/c1xx.dll'\n");
@@ -510,11 +517,6 @@ namespace UnrealBuildTool
 
 				AddText("\t}\n"); // End extra files
 
-				if (bEnableCaching && bUseExperimentalLightCache)
-				{
-					AddText($"\t.UseLightCache_Experimental = true\n");
-				}
-
 				AddText("}\n\n"); // End compiler
 			}
 
@@ -536,12 +538,22 @@ namespace UnrealBuildTool
 				AddText("}\n\n");
 			}
 
+			if (envVars.ContainsKey("LINUX_MULTIARCH_ROOT")) // UE4 Linux Toolchain
+			{
+				AddText($".LINUX_MULTIARCH_ROOT = '{envVars["LINUX_MULTIARCH_ROOT"]}'\n");
+				AddText($".LinuxBasePath = '{envVars["LINUX_MULTIARCH_ROOT"]}/x86_64-unknown-linux-gnu/bin'\n\n");
+				AddText("Compiler('UE4LinuxCompiler') \n{\n");
+				AddText("\t.Executable = '$LinuxBasePath$/clang.exe'\n");
+				AddText("}\n\n");
+			}
+
 			AddText("Settings \n{\n");
 
 			// Optional cachePath user setting
 			if (bEnableCaching && CachePath != "")
 			{
-				AddText($"\t.CachePath = '{CachePath}'\n");
+				var platformCachePath = Path.Combine(CachePath, BuildType.ToString());
+				AddText($"\t.CachePath = '{platformCachePath}'\n");
 			}
 
 			//Start Environment
@@ -640,8 +652,7 @@ namespace UnrealBuildTool
 			AddText($"\t.CompilerInputFiles = \"{InputFile}\"\n");
 			AddText($"\t.CompilerOutputPath = \"{IntermediatePath}\"\n");
 			AddText($"\t.WorkingDir = \"{Action.WorkingDirectory}\"\n");
-
-			if (Action.DependencyListFile != null)
+			if(Action.DependencyListFile != null)
 			{
 				AddText($"\t.DependenciesListOutFile = \"{Action.DependencyListFile.FullName}\"\n");
 			}
@@ -666,7 +677,6 @@ namespace UnrealBuildTool
 			if (IsMSVC())
 			{
 				OtherCompilerOptions = OtherCompilerOptions.Replace("we4668", "wd4668");
-				OtherCompilerOptions += " /wd4005";
 			}
 			else
 			{
@@ -732,11 +742,6 @@ namespace UnrealBuildTool
 
 		private void AddExecNode(Action Action,int ActionIndex,List<int> DependencyIndices)
 		{
-			if (Action.CommandPath.FullName.EndsWith("cl-filter.exe"))
-			{
-				//Action.CommandArguments += " /wd4005";
-			}
-
 			AddText($"; \"{Action.CommandPath}\" {Action.CommandArguments}\n");
 			AddText($"Exec('Action_{ActionIndex}')\n");
 			AddText("{\n");
@@ -779,6 +784,7 @@ namespace UnrealBuildTool
 						DependencyIndices.Add(Actions.IndexOf(PrerequisiteAction));
 					}
 
+					// only ObjectListNode and ObjectNode can be distributed
 					if (Action.ActionType == ActionType.Compile && Action.bCanExecuteRemotely && Action.bCanExecuteRemotelyWithSNDBS)
 					{
 						AddCompileAction(Action, ActionIndex, DependencyIndices);
@@ -816,15 +822,10 @@ namespace UnrealBuildTool
 
 		private bool ExecuteBffFile(string BffFilePath)
 		{
-			string cacheArgument = "";
+			string cacheArgument = bEnableCacheVerbosity ? "-cacheverbose " : "";
 
 			if (bEnableCaching)
 			{
-				if (bEnableCacheVerbosity)
-				{
-					cacheArgument += "-cacheverbose ";
-				}
-
 				switch (CacheMode)
 				{
 					case eCacheMode.ReadOnly:
